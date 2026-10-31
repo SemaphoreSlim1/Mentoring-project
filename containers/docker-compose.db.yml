@@ -1,0 +1,28 @@
+services:
+  db:
+    image: dm-db:latest
+    profiles: ["db", "app"]
+    ports:
+      - 1433:1433
+    restart: unless-stopped
+    build:
+      context: ..
+      dockerfile: containers/database/dockerfile
+      args:
+        DATABASE_NAME: ApplicationLogs
+    environment:
+      ACCEPT_EULA: Y
+      MSSQL_SA_PASSWORD: passWord123
+      MSSQL_PID: Developer
+      TZ: 'America/Chicago'
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P passWord123 -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 10
+    volumes:
+     - db-data:/var/opt/mssql
+
+volumes:
+  db-data:

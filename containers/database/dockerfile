@@ -1,0 +1,56 @@
+
+#download the microsoft signing key for sql server 2025
+FROM alpine:3.23 AS signingbuilder
+
+RUN apk add --no-cache \
+        ca-certificates \
+        curl \
+        gnupg; \
+    \
+    mkdir -p /out/keyrings /out/sources; \
+    \
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+        | gpg --dearmor \
+        > /out/keyrings/microsoft.gpg; \
+    \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] \
+https://packages.microsoft.com/ubuntu/24.04/mssql-server-2025 \
+jammy main" \
+        > /out/sources/mssql-server-2025.list
+
+
+# add the microsoft signing key and sources list
+# then install full text search
+FROM mcr.microsoft.com/mssql/server:2025-CU3-ubuntu-24.04 AS runtime
+
+ARG DATABASE_NAME
+ENV DEFAULT_DATABASE=${DATABASE_NAME}
+ENV PATH="/opt/mssql-tools18/bin:${PATH}"
+
+USER root
+
+# Copy only the prepared artifacts from the builder stage
+COPY --from=signingbuilder /out/keyrings/microsoft.gpg /usr/share/keyrings/microsoft.gpg
+COPY --from=signingbuilder /out/sources/mssql-server-2025.list \
+    /etc/apt/sources.list.d/mssql-server-2025.list
+
+RUN apt-get update; \
+    apt-get install -y --no-install-recommends \
+        mssql-server-fts; \
+    \
+    # Enable SQL Server Agent
+    /opt/mssql/bin/mssql-conf set sqlagent.enabled true; \
+    \
+    # Cleanup
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
+
+# COPY --from=migrations /app/pub/migrations.sql /docker-init/migrations.sql
+
+COPY containers/database/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Return to the non-root runtime user
+USER mssql
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
